@@ -1,0 +1,332 @@
+---
+title: "DS 6030 Project"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+library(klaR)
+library(dplyr)
+library(yardstick)
+
+```
+
+```{r}
+haiti <- read.csv("HaitiPixels.csv", header = TRUE)
+
+#red_mean 
+#haiti %>% group_by(Class) %>% 
+#  summarize(mean(Red, rm.na = T))
+
+
+mean(haiti$Red, rm.na = T)
+
+
+#blue_mean 
+#haiti %>% group_by(Class) %>% 
+#  summarize(mean(Blue, rm.na = T))
+
+mean(haiti$Blue, rm.na = T)
+
+
+#green_mean 
+#haiti %>% group_by(Class) %>% 
+#  summarize(mean(Green, rm.na = T))
+
+mean(haiti$Green, rm.na = T)
+
+```
+
+```{r}
+# #names(haiti)
+# 
+# #head(haiti)
+# 
+# unzip('HoldOutData.zip', exdir = "holdout_dir")
+# 
+# NBT_057 = read.csv('holdout_dir/orthovnir057_ROI_NON_Blue_Tarps.csv', header = T)
+# #head(NBT_057)
+# 
+# mean(NBT_057$B1)
+# mean(NBT_057$B2)
+# mean(NBT_057$B3)
+# 
+# ###
+# 
+# NBT_067 = read.csv('holdout_dir/orthovnir067_ROI_NOT_Blue_Tarps.csv', header = T)
+# #head(NBT_067)
+# 
+# mean(NBT_067$B1)
+# mean(NBT_067$B2)
+# mean(NBT_067$B3)
+# 
+# BT_067 = read.csv('holdout_dir/orthovnir067_ROI_Blue_Tarps.csv', header = T)
+# #head(BT_067)
+# 
+# mean(BT_067$B1)
+# mean(BT_067$B2)
+# mean(BT_067$B3)
+# 
+# ###
+# 
+# NBT_069 = read.csv('holdout_dir/orthovnir069_ROI_NOT_Blue_Tarps.csv', header = T)
+# #head(NBT_067)
+# 
+# mean(NBT_069$B1)
+# mean(NBT_069$B2)
+# mean(NBT_069$B3)
+# 
+# BT_069 = read.csv('holdout_dir/orthovnir069_ROI_Blue_Tarps.csv', header = T)
+# #head(BT_067)
+# 
+# mean(BT_069$B1)
+# mean(BT_069$B2)
+# mean(BT_069$B3)
+# 
+# ###
+# 
+# NBT_078 = read.csv('holdout_dir/orthovnir078_ROI_NON_Blue_Tarps.csv', header = T)
+# #head(NBT_078)
+# 
+# mean(NBT_078$B1)
+# mean(NBT_078$B2)
+# mean(NBT_078$B3)
+# 
+# BT_078 = read.csv('holdout_dir/orthovnir078_ROI_Blue_Tarps.csv', header = T)
+# #head(BT_078)
+# 
+# mean(BT_078$B1)
+# mean(BT_078$B2)
+# mean(BT_078$B3)
+# 
+# 
+
+```
+
+```{r}
+unzip("HoldOutData.zip", exdir = "holdout_dir", overwrite = TRUE)
+#Trying to determine which of B1, B2, B3 is Blue. When comparing blue tarp to non blue tarp files, A higher mean value of Bx should tell us which one is blue
+df_blue <- read.table("holdout_dir/orthovnir067_ROI_Blue_Tarps.txt", header = FALSE, skip = 10)
+df_nonblue <- read.table("holdout_dir/orthovnir067_ROI_NOT_Blue_Tarps.txt", header = FALSE, skip = 10)
+colnames(df_blue) <- colnames(df_nonblue) <- c("ID", "X", "Y", "MapX", "MapY", "Lat", "Lon", "B1", "B2", "B3")
+
+mean_blue <- colMeans(df_blue[, c("B1", "B2", "B3")])
+mean_nonblue <- colMeans(df_nonblue[, c("B1", "B2", "B3")])
+
+
+print("Blue Tarps - mean")
+print(mean_blue)
+
+print("Non-Blue Tarps - mean")
+print(mean_nonblue)
+```
+B3 seems to be the obvious label for "Blue" with an average B3 of 176.85 compared to Non-Blue's 92.22
+
+```{r}
+#Now trying to confirm if B1 and B2 are red or green
+#Trying to understand a baseline of the means using the training set. We assume green is more prevalent in "vegetation" and red is more prevalent in "soil"
+training_mean <- haiti %>%
+  filter(Class %in% c("Vegetation", "Soil")) %>%
+  group_by(Class) %>%
+  summarise(
+    MeanRed = mean(Red),
+    MeanGreen = mean(Green))
+print(training_mean)
+#Red appears to be brighter in both cases of soil and vegetation - meaning if B1 or B2 is brighter - that would be the 'red"
+
+
+RGtest <- read.table("holdout_dir/orthovnir067_ROI_NOT_Blue_Tarps.txt", header=FALSE, skip=10)
+colnames(RGtest) <- c("ID", "X", "Y", "MapX", "MapY", "Lat", "Lon", "B1", "B2", "Blue")
+
+holdout_means <- colMeans(RGtest[, c("B1", "B2")])
+print(holdout_means)
+```
+B1 is brighter, meaning it should be "Red". B1 = Red, B2 = Green, B3 = Blue
+
+```{r}
+#Applying the same column headers to all holdout files
+read_holdout<- function(filename, label) {
+  df <- read.table(filename, header = FALSE, skip = 10)
+  colnames(df) <- c("ID", "X", "Y", "MapX", "MapY", "Lat", "Lon", "Red", "Green", "Blue")
+  df$Class <- label
+  df[, c("Class", "Red", "Green", "Blue")]}
+
+Blue078 <- read_holdout("holdout_dir/orthovnir078_ROI_Blue_Tarps.txt", "Blue Tarp")
+NonBlue078 <- read_holdout("holdout_dir/orthovnir078_ROI_NON_Blue_Tarps.txt", "Non-Blue Tarp")
+
+Blue069 <- read_holdout("holdout_dir/orthovnir069_ROI_Blue_Tarps.txt", "Blue Tarp")
+NonBlue069 <- read_holdout("holdout_dir/orthovnir069_ROI_NOT_Blue_Tarps.txt", "Non-Blue Tarp")
+
+Blue067 <- read_holdout("holdout_dir/orthovnir067_ROI_Blue_Tarps.txt", "Blue Tarp")
+NonBlue067 <- read_holdout("holdout_dir/orthovnir067_ROI_NOT_Blue_Tarps.txt", "Non-Blue Tarp")
+
+NonBlue057 <- read_holdout("holdout_dir/orthovnir057_ROI_NON_Blue_Tarps.txt", "Non-Blue Tarp")
+```
+
+```{r}
+#Combining all holdout files
+holdout<- rbind(
+  Blue078, NonBlue078,
+  Blue069, NonBlue069,
+  Blue067, NonBlue067,
+  NonBlue057)
+holdout
+```
+
+```{r}
+#Holdout Data Class Breakdown
+holdout%>%
+  count(Class) %>%
+  ggplot(aes(x = "", y = n, fill = Class)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  ggtitle("Holdout Data: Class Distribution") +
+  theme_void() +
+  theme(legend.title = element_blank())+
+  scale_fill_manual(values = c(
+    "Blue Tarp" = "dodgerblue2",
+    "Non-Blue Tarp" = "azure4"))
+
+#Training Set Class Breakdown
+haiti %>%
+  count(Class) %>%
+  ggplot(aes(x = "", y = n, fill = Class)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  ggtitle("Training Data: Class Distribution") +
+  theme_void() +
+  theme(legend.title = element_blank())+
+  scale_fill_manual(values = c(
+    "Blue Tarp" = "dodgerblue2",
+    "Vegetation" = "green4",
+    "Soil" = "lightsalmon4",
+    "Rooftop" = "firebrick3",
+    "Various Non-Tarp" = "gold2"))
+```
+
+#QDA
+
+```{r}
+
+# Training data (retain all original classes)
+train_data <- haiti %>%
+  mutate(Class = factor(Class)) %>%
+  dplyr::select(Red, Green, Blue, Class)
+
+```
+
+```{r}
+
+set.seed(42)
+folds <- vfold_cv(train_data, v = 5)
+
+```
+
+```{r}
+# QDA model
+
+qda_spec <- discrim_quad() %>%
+  set_mode("classification") %>%
+  set_engine("MASS")
+
+qda_wf <- workflow() %>%
+  add_model(qda_spec) %>%
+  add_formula(Class ~ Red + Green + Blue)
+
+# Fit resamples with ROC AUC and accuracy
+qda_res <- fit_resamples(
+  qda_wf,
+  resamples = folds,
+  metrics = metric_set(accuracy, roc_auc),
+  control = control_resamples(save_pred = TRUE)
+)
+```
+
+
+
+```{r}
+
+# Collect and print resample metrics
+print(collect_metrics(qda_res))
+
+# Fit final model on full training data
+qda_fit <- qda_wf %>%
+  fit(data = train_data)
+```
+
+```{r}
+
+# QDA Holdout Data
+
+test_data <- holdout %>%
+  mutate(Class = factor(Class, levels = levels(train_data$Class))) %>%
+  dplyr::select(Red, Green, Blue, Class)
+
+holdout_preds <- augment(qda_fit, new_data = test_data)
+
+holdout_preds %>% metrics(truth = Class, estimate = .pred_class)
+
+```
+
+```{r}
+# Holdout Confusion Matrix
+
+holdout_preds %>% conf_mat(truth = Class, estimate = .pred_class) %>% autoplot(type = "heatmap")
+
+```
+
+```{r}
+
+#ROC Curves for Training Data
+
+# Filter prediction probability columns
+pred_cols <- names(holdout_preds)[startsWith(names(holdout_preds), ".pred_")]
+pred_cols <- setdiff(pred_cols, ".pred_class")
+
+qda_roc_long <- qda_preds %>%
+  dplyr::select(Class, all_of(pred_cols)) %>%
+  tidyr::pivot_longer(
+    cols = all_of(pred_cols),
+    names_to = "Class_label",
+    names_prefix = ".pred_",
+    values_to = "prob"
+  ) %>%
+  mutate(Class_label = factor(Class_label, levels = levels(qda_preds$Class)))
+
+# Function to create ROC curve for one class (one-vs-all)
+roc_one_vs_all <- function(data, class_name) {
+  data %>%
+    mutate(
+      binary_truth = factor(
+        ifelse(Class == class_name, class_name, paste0("Not_", class_name)),
+        levels = c(paste0("Not_", class_name), class_name)
+      )
+    ) %>%
+    filter(Class_label == class_name) %>%
+    roc_curve(binary_truth, prob) %>%
+    mutate(class = class_name)
+}
+# Get ROC curves for each class separately and combine
+roc_data <- purrr::map_dfr(levels(qda_preds$Class), ~ roc_one_vs_all(qda_roc_long, .x))
+
+# Plot all ROC curves
+ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = class)) +
+  geom_line(linewidth = 1) +
+  geom_abline(linetype = "dashed") +
+  labs(title = "One-vs-All ROC Curves for Multiclass QDA (Training Set)",
+       x = "False Positive Rate (1 - Specificity)",
+       y = "True Positive Rate (Sensitivity)",
+       color = "Class") +
+  theme_minimal()
+```
+
+
+
+
+Sources:
+
+Roever, Christian, et al. Package “KlaR” Title Classification and Visualization. 2018.
